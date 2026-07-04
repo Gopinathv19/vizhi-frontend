@@ -6,13 +6,14 @@ import { CheckCircle, KeyRound } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FieldError, Label, Select, Textarea } from "@/components/ui/field";
+import { FieldError, Input, Label, Select, Textarea } from "@/components/ui/field";
 import { PageHeader } from "@/components/shared/page-header";
 import { useCreateModelConnection, useModelCatalog } from "@/lib/api/queries";
 
 const schema = z.object({
   provider: z.string().min(1, "Provider is required"),
   modelName: z.string().min(2, "Model name is required"),
+  tokenName: z.string().max(120).optional().default(""),
   metadata: z.string().optional(),
 });
 
@@ -65,11 +66,19 @@ export default function ConnectModelPage() {
     }
 
     setErrors({});
-    createModel.mutate(parsed.data, {
-      onSuccess(data) {
-        setGeneratedToken(data.apiKey);
+    createModel.mutate(
+      {
+        provider: parsed.data.provider,
+        modelName: parsed.data.modelName,
+        tokenName: parsed.data.tokenName || undefined,
+        metadata: parsed.data.metadata,
       },
-    });
+      {
+        onSuccess(data) {
+          setGeneratedToken(data.apiKey);
+        },
+      }
+    );
   }
 
   return (
@@ -103,6 +112,18 @@ export default function ConnectModelPage() {
                {availableModels.map((model)=> <option key={model.id} value={model.id}>{model.label}</option>)}
                </Select>
               <FieldError message={errors.modelName} />
+            </div>
+            <div className="space-y-2">
+              <Label>
+                Token Name <span className="text-[var(--muted)] font-normal">(optional)</span>
+              </Label>
+              <Input
+                {...register("tokenName")}
+                placeholder="e.g. production-gpt4o"
+                maxLength={120}
+              />
+              <p className="text-xs text-[var(--muted)]">A friendly label shown in the token list</p>
+              <FieldError message={errors.tokenName} />
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Description</Label>

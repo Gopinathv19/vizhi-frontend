@@ -15,6 +15,7 @@ const schema = z.object({
   name: z.string().min(2, "Agent name is required"),
   description: z.string().min(8, "Description is required"),
   tags: z.string().optional().default(""),
+  tokenName: z.string().max(120).optional().default(""),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -33,7 +34,12 @@ export default function AgentsPage() {
     }
 
     setErrors({});
-    createAgent.mutate(parsed.data);
+    createAgent.mutate({
+      name: parsed.data.name,
+      description: parsed.data.description,
+      tags: parsed.data.tags,
+      tokenName: parsed.data.tokenName || undefined,
+    });
   }
 
   return (
@@ -59,7 +65,18 @@ export default function AgentsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Tags</Label>
-                  <Input {...register("tags")} />
+                  <Input {...register("tags")} placeholder="ci, prod, staging" />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    Token Name <span className="text-[var(--muted)] font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    {...register("tokenName")}
+                    placeholder="e.g. prod-ci-bot"
+                    maxLength={120}
+                  />
+                  <p className="text-xs text-[var(--muted)]">A friendly label shown in the token list</p>
                 </div>
               </div>
               <Button type="submit" variant="primary" disabled={createAgent.isPending}>

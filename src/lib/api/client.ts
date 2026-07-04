@@ -10,31 +10,25 @@ import type {
 } from "@/types/domain";
 import { clearSession, type AuthSession } from "@/lib/auth";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export type CreateModelConnectionInput = {
   provider: Provider;
   modelName: string;
+  tokenName?: string;
   metadata?: string;
 };
 
-export type ModelConnectionCreated = {
-  id: string;
-  provider: Provider;
-  modelName: string;
-  status: Status;
-  createdAt: string;
-  usageCount: number;
-  maskedKey: string;
-  metadata?: string;
-  apiKey: string;
-};
+export type ModelConnectionCreated = ModelConnection & { apiKey: string };
 
 export type CreateAgentInput = {
   name: string;
   description: string;
   tags: string;
+  tokenName?: string;
 };
+
+export type AgentCreated = Agent & { apiKey: string };
 
 type ApiMetricPoint = {
   time: string;
@@ -57,28 +51,44 @@ type ApiRequestEvent = {
   output_tokens: number;
   estimated_cost: number;
   error_message?: string;
+  prompt?: Array<{ role: string; content: string }>;
+  response_text?: string;
 };
 
 type ApiModelConnection = {
   id: string;
   provider: string;
   model_name: string;
-  status: Status;
+  token_name?: string | null;
+  status: string;
   created_at: string;
   usage_count: number;
   masked_key?: string;
+  last_used_at?: string | null;
   metadata?: string | null;
+};
+
+type ApiModelConnectionCreated = {
+  model_connection: ApiModelConnection;
+  api_key: string;
 };
 
 type ApiAgent = {
   id: string;
   name: string;
   description: string;
+  token_name?: string | null;
   agent_id: string;
   tags?: string[];
-  status: Status;
+  status: string;
   created_at: string;
   masked_key: string;
+  last_used_at?: string | null;
+};
+
+type ApiAgentCreated = {
+  agent: ApiAgent;
+  api_key: string;
 };
 
 function displayProvider(provider: string): Provider {
@@ -201,10 +211,12 @@ export const api = {
       id: item.id,
       provider: displayProvider(item.provider),
       modelName: item.model_name,
-      status: item.status as Status,
+      tokenName: item.token_name ?? undefined,
+      status: (item.status as ModelConnection["status"]),
       createdAt: item.created_at,
       usageCount: item.usage_count,
       maskedKey: item.masked_key || "vz_live_...",
+      lastUsedAt: item.last_used_at ?? undefined,
       metadata: item.metadata || undefined,
     }));
   },
@@ -222,6 +234,7 @@ export const api = {
       body: JSON.stringify({
         provider: input.provider.toLowerCase(),
         model_name: input.modelName,
+        token_name: input.tokenName || null,
         metadata: input.metadata || "",
       }),
     });
@@ -246,35 +259,77 @@ export const api = {
       id: item.id,
       name: item.name,
       description: item.description,
+      tokenName: item.token_name ?? undefined,
       cid: item.agent_id,
       tags: item.tags || [],
-      status: item.status as Status,
-      createdAt: item.created_at,
+      status: item.status as Agent["status"],
       maskedKey: item.masked_key,
+      lastUsedAt: item.last_used_at ?? undefined,
+      createdAt: item.created_at,
     }));
   },
 
-  async createAgent(input: CreateAgentInput): Promise<Agent> {
-    const res = await request<{
-      agent: ApiAgent;
-      api_key: string;
-    }>("/v1/agents", {
+  async createAgent(input: CreateAgentInput): Promise<AgentCreated> {
+    const res = await request<ApiAgentCreated>("/v1/agents", {
       method: "POST",
       body: JSON.stringify({
         name: input.name,
         description: input.description,
         tags: input.tags,
+        token_name: input.tokenName ?? null,
       }),
     });
     return {
       id: res.agent.id,
       name: res.agent.name,
       description: res.agent.description,
+      tokenName: res.agent.token_name ?? undefined,
       cid: res.agent.agent_id,
       tags: res.agent.tags || [],
-      status: res.agent.status as Status,
+      status: res.agent.status as Agent["status"],
+      maskedKey: res.agent.masked_key,
+      lastUsedAt: res.agent.last_used_at ?? undefined,
       createdAt: res.agent.created_at,
-      maskedKey: res.api_key, // Provide full API key here on creation so user can copy it!
+      apiKey: res.api_key, // Full plaintext key — returned once only
+    };
+  },
+
+  async revokeAgent(agentCID: string): Promise<Agent> {
+    const res = await request<ApiAgent>(
+      `/v1/agents/${encodeURIComponent(agentCID)}/revoke`,
+      { method: "POST" }
+    );
+    return {
+      id: res.id,
+      name: res.name,
+      description: res.description,
+      tokenName: res.token_name ?? undefined,
+      cid: res.agent_id,
+      tags: res.tags || [],
+      status: res.status as Agent["status"],
+      maskedKey: res.masked_key,
+      lastUsedAt: res.last_used_at ?? undefined,
+      createdAt: res.created_at,
+    };
+  },
+
+  async rotateAgent(agentCID: string): Promise<AgentCreated> {
+    const res = await request<ApiAgentCreated>(
+      `/v1/agents/${encodeURIComponent(agentCID)}/rotate`,
+      { method: "POST" }
+    );
+    return {
+      id: res.agent.id,
+      name: res.agent.name,
+      description: res.agent.description,
+      tokenName: res.agent.token_name ?? undefined,
+      cid: res.agent.agent_id,
+      tags: res.agent.tags || [],
+      status: res.agent.status as Agent["status"],
+      maskedKey: res.agent.masked_key,
+      lastUsedAt: res.agent.last_used_at ?? undefined,
+      createdAt: res.agent.created_at,
+      apiKey: res.api_key, // New plaintext key — returned once only
     };
   },
 
@@ -305,14 +360,23 @@ export const api = {
     return newLink;
   },
 
-  async getMetrics(): Promise<{
+  async getMetrics(params?: {
+    timeRange?: string;
+    agentId?: string;
+    modelId?: string;
+  }): Promise<{
     metricSeries: MetricPoint[];
     requests: RequestEvent[];
   }> {
+    const searchParams = new URLSearchParams();
+    if (params?.timeRange) searchParams.set("time_range", params.timeRange);
+    if (params?.agentId && params.agentId !== "all") searchParams.set("agent_id", params.agentId);
+    if (params?.modelId && params.modelId !== "all") searchParams.set("model_id", params.modelId);
+    const qs = searchParams.toString();
     const data = await request<{
       metric_series: ApiMetricPoint[];
       requests: ApiRequestEvent[];
-    }>("/v1/metrics");
+    }>(`/v1/metrics${qs ? `?${qs}` : ""}`);
     return {
       metricSeries: data.metric_series.map((point) => ({
         time: point.time,
@@ -334,6 +398,8 @@ export const api = {
         outputTokens: req.output_tokens,
         estimatedCost: req.estimated_cost,
         errorMessage: req.error_message,
+        prompt: req.prompt ?? [],
+        responseText: req.response_text ?? "",
       })),
     };
   },
@@ -355,6 +421,45 @@ export const api = {
     };
   },
 
+  async revokeModel(modelId: string): Promise<ModelConnection> {
+    const res = await request<ApiModelConnection>(
+      `/v1/models/${encodeURIComponent(modelId)}/revoke`,
+      { method: "POST" }
+    );
+    return {
+      id: res.id,
+      provider: displayProvider(res.provider),
+      modelName: res.model_name,
+      tokenName: res.token_name ?? undefined,
+      status: (res.status as ModelConnection["status"]),
+      createdAt: res.created_at,
+      usageCount: res.usage_count,
+      maskedKey: res.masked_key || "vz_live_...",
+      lastUsedAt: res.last_used_at ?? undefined,
+      metadata: res.metadata || undefined,
+    };
+  },
+
+  async rotateModel(modelId: string): Promise<ModelConnectionCreated> {
+    const res = await request<ApiModelConnectionCreated>(
+      `/v1/models/${encodeURIComponent(modelId)}/rotate`,
+      { method: "POST" }
+    );
+    return {
+      id: res.model_connection.id,
+      provider: displayProvider(res.model_connection.provider),
+      modelName: res.model_connection.model_name,
+      tokenName: res.model_connection.token_name ?? undefined,
+      status: (res.model_connection.status as ModelConnection["status"]),
+      createdAt: res.model_connection.created_at,
+      usageCount: res.model_connection.usage_count,
+      maskedKey: res.model_connection.masked_key || "vz_live_...",
+      lastUsedAt: res.model_connection.last_used_at ?? undefined,
+      metadata: res.model_connection.metadata || undefined,
+      apiKey: res.api_key,
+    };
+  },
+
   async deleteModel(modelId: string): Promise<void> {
     await request(`/v1/models/${modelId}`, {
       method: "DELETE",
@@ -365,6 +470,96 @@ export const api = {
     await request(`/v1/agents/${encodeURIComponent(agentCID)}`, {
       method: "DELETE",
     });
+  },
+
+  async getModelUsage(modelId: string): Promise<{
+    modelConnection: ModelConnection;
+    stats: {
+      totalRequests: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalTokens: number;
+      totalCost: number;
+      avgLatencyMs: number;
+      errorCount: number;
+      successRate: number;
+    };
+    recentQueries: Array<{
+      queryId: string;
+      timestamp: string;
+      agentId: string;
+      prompt: Array<{ role: string; content: string }>;
+      responseText: string;
+      inputTokens: number;
+      outputTokens: number;
+      latencyMs: number;
+      statusCode: number;
+      estimatedCost: number;
+      errorMessage?: string;
+    }>;
+  }> {
+    const data = await request<{
+      model_connection: ApiModelConnection;
+      stats: {
+        total_requests: number;
+        total_input_tokens: number;
+        total_output_tokens: number;
+        total_tokens: number;
+        total_cost: number;
+        avg_latency_ms: number;
+        error_count: number;
+        success_rate: number;
+      };
+      recent_queries: Array<{
+        query_id: string;
+        timestamp: string;
+        agent_id: string;
+        prompt: Array<{ role: string; content: string }>;
+        response_text: string;
+        input_tokens: number;
+        output_tokens: number;
+        latency_ms: number;
+        status_code: number;
+        estimated_cost: number;
+        error_message?: string;
+      }>;
+    }>(`/v1/models/${modelId}/usage`);
+
+    return {
+      modelConnection: {
+        id: data.model_connection.id,
+        provider: displayProvider(data.model_connection.provider),
+        modelName: data.model_connection.model_name,
+        status: data.model_connection.status as Status,
+        createdAt: data.model_connection.created_at,
+        usageCount: data.model_connection.usage_count,
+        maskedKey: data.model_connection.masked_key || "vz_live_...",
+        metadata: data.model_connection.metadata || undefined,
+      },
+      stats: {
+        totalRequests: data.stats.total_requests,
+        totalInputTokens: data.stats.total_input_tokens,
+        totalOutputTokens: data.stats.total_output_tokens,
+        totalTokens: data.stats.total_tokens,
+        totalCost: data.stats.total_cost,
+        avgLatencyMs: data.stats.avg_latency_ms,
+        errorCount: data.stats.error_count,
+        successRate: data.stats.success_rate,
+      },
+      recentQueries: data.recent_queries.map((q) => ({
+        queryId: q.query_id,
+        timestamp: q.timestamp,
+        agentId: q.agent_id,
+        prompt: q.prompt,
+        responseText: q.response_text,
+        inputTokens: q.input_tokens,
+        outputTokens: q.output_tokens,
+        latencyMs: q.latency_ms,
+        statusCode: q.status_code,
+        estimatedCost: q.estimated_cost,
+        errorMessage: q.error_message,
+      })),
+    };
   },
 };
 
