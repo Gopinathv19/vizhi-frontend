@@ -7,9 +7,11 @@ import {
   Activity,
   Bot,
   GitBranch,
+  Heart,
   Home,
   KeyRound,
   LogOut,
+  MessageSquare,
   PlusCircle,
   Radar,
   Search,
@@ -28,6 +30,8 @@ const navItems = [
   { href: "/agents/tokens", label: "Agent Tokens", icon: Shield },
   { href: "/links", label: "Links", icon: GitBranch },
   { href: "/monitoring", label: "Monitoring", icon: Activity },
+  { href: "/playground", label: "Playground", icon: MessageSquare },
+  { href: "/health", label: "Provider Health", icon: Heart },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

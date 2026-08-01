@@ -4,6 +4,7 @@ out
 dist
 coverage
 *.tsbuildinfo
+.venv
 .env
 .env*
 !.env.example
@@ -11,3 +12,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.venv/*
+.venv
+.venv/

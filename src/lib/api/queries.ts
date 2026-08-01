@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type CreateAgentInput, type CreateModelConnectionInput } from "@/lib/api/client";
+import { api, type BudgetUpdateInput, type CreateAgentInput, type CreateModelConnectionInput } from "@/lib/api/client";
 import type { Agent, ModelConnection } from "@/types/domain";
+
+function maskFullToken(token: string): string {
+  if (!token) return "";
+  if (token.length <= 12) return token;
+  return `${token.slice(0, 10)}...${token.slice(-4)}`;
+}
 
 export const queryKeys = {
   dashboard: ["dashboard"],
@@ -64,8 +70,19 @@ export function useCreateAgent() {
     mutationFn: (input: CreateAgentInput) => api.createAgent(input),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.agents });
-      const label = data.tokenName ? `"${data.tokenName}"` : data.maskedKey;
-      toast.success(`Agent token generated: ${label}`);
+      toast.success("Agent token generated", {
+        description: data.apiKey,
+        action: {
+          label: "Copy",
+          onClick: () => navigator.clipboard.writeText(data.apiKey),
+        },
+      });
+
+      if (data.tokenName) {
+        toast.info(`Saved as token name: "${data.tokenName}"`, {
+          description: `Future list views will show ${maskFullToken(data.apiKey)} as masked.`,
+        });
+      }
     },
     onError: (error: Error) => {
       toast.error(`Failed to create agent: ${error.message}`);
@@ -172,10 +189,83 @@ export function useRotateModel() {
   });
 }
 
+export function useProviderHealth() {
+  return useQuery({
+    queryKey: ["provider-health"],
+    queryFn: api.getProviderHealth,
+    refetchInterval: 60_000,   // auto-refresh every 60 s (matches backend loop)
+    staleTime: 30_000,
+  });
+}
+
+export function useRefreshProviderHealth() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.refreshProviderHealth,
+    onSuccess: (data) => {
+      queryClient.setQueryData(["provider-health"], data);
+      toast.success("Provider health refreshed");
+    },
+    onError: (err: Error) => {
+      toast.error(`Refresh failed: ${err.message}`);
+    },
+  });
+}
+
 export function useModelUsage(modelId: string) {
   return useQuery({
     queryKey: [...queryKeys.models, modelId, "usage"],
     queryFn: () => api.getModelUsage(modelId),
     enabled: !!modelId,
+  });
+}
+
+// ── Budget hooks ─────────────────────────────────────────────────────────
+
+export function useAgentBudget(agentCID: string) {
+  return useQuery({
+    queryKey: ["agentBudget", agentCID],
+    queryFn: () => api.getAgentBudget(agentCID),
+    enabled: !!agentCID,
+  });
+}
+
+export function useUpdateAgentBudget(agentCID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: BudgetUpdateInput) => api.updateAgentBudget(agentCID, body),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["agentBudget", agentCID], data);
+      toast.success(data.budget_usd === null && data.budget_tokens === null
+        ? "Budget limits cleared"
+        : "Budget updated");
+    },
+    onError: (err: Error) => {
+      toast.error(`Failed to update budget: ${err.message}`);
+    },
+  });
+}
+
+export function useModelBudget(modelId: string) {
+  return useQuery({
+    queryKey: ["modelBudget", modelId],
+    queryFn: () => api.getModelBudget(modelId),
+    enabled: !!modelId,
+  });
+}
+
+export function useUpdateModelBudget(modelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: BudgetUpdateInput) => api.updateModelBudget(modelId, body),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["modelBudget", modelId], data);
+      toast.success(data.budget_usd === null && data.budget_tokens === null
+        ? "Budget limits cleared"
+        : "Budget updated");
+    },
+    onError: (err: Error) => {
+      toast.error(`Failed to update budget: ${err.message}`);
+    },
   });
 }

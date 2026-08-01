@@ -1,10 +1,11 @@
 "use client";
 
-import { RefreshCcw, ShieldOff, Trash2, Copy, Check } from "lucide-react";
+import { RefreshCcw, ShieldOff, Trash2, Copy, Check, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/shared/data-table";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { BudgetPanel } from "@/components/shared/budget-panel";
 import {
   useAgents,
   useDeleteAgent,
@@ -38,6 +39,8 @@ export default function AgentTokensPage() {
   const [pendingCID, setPendingCID] = useState<string | null>(null);
   // After rotation, hold the new key so the user can copy it once.
   const [rotatedToken, setRotatedToken] = useState<{ cid: string; apiKey: string } | null>(null);
+  // Budget panel: which agent CID currently has it open
+  const [budgetCID, setBudgetCID] = useState<string | null>(null);
 
   const handleDelete = useCallback(async (cid: string, name: string) => {
     if (!confirm(`Delete agent token "${name}"?\n\nThis cannot be undone.`)) return;
@@ -163,6 +166,16 @@ export default function AgentTokensPage() {
                 <ShieldOff className="h-4 w-4" />
               </Button>
 
+              {/* Budget */}
+              <Button
+                size="icon"
+                title="Configure spending / token budget"
+                disabled={isPending}
+                onClick={() => setBudgetCID(budgetCID === agent.cid ? null : agent.cid)}
+              >
+                <Wallet className="h-4 w-4" />
+              </Button>
+
               {/* Delete */}
               <Button
                 size="icon"
@@ -174,6 +187,19 @@ export default function AgentTokensPage() {
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>,
+
+            // Budget panel (renders as an extra full-width row when open)
+            ...(budgetCID === agent.cid
+              ? [
+                  <BudgetPanel
+                    key="budget"
+                    type="agent"
+                    id={agent.cid}
+                    label={agent.tokenName || agent.name}
+                    onClose={() => setBudgetCID(null)}
+                  />,
+                ]
+              : []),
           ];
         })}
       />

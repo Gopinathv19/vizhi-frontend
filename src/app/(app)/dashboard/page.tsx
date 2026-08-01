@@ -6,13 +6,19 @@ import { DataTable } from "@/components/shared/data-table";
 import { MetricCard } from "@/components/shared/metric-card";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { useDashboard } from "@/lib/api/queries";
-import { agents, modelConnections } from "@/lib/mock-data";
+import { useAgents, useDashboard, useModels } from "@/lib/api/queries";
 import { formatNumber } from "@/lib/utils";
 
 export default function DashboardPage() {
   const { data } = useDashboard();
+  const { data: agents = [] } = useAgents();
+  const { data: models = [] } = useModels();
   const totals = data?.totals;
+
+  // request.agentId holds the agent CID — match on agent.cid
+  const agentByCid = (cid: string) => agents.find((a) => a.cid === cid)?.name ?? cid;
+  // request.modelId holds the raw model name string — match on modelName
+  const modelByName = (name: string) => models.find((m) => m.modelName === name)?.modelName ?? name;
 
   return (
     <>
@@ -34,11 +40,11 @@ export default function DashboardPage() {
           headers={["Request ID", "Agent", "Model", "Status", "Latency", "Cost"]}
           rows={(data?.recentRequests ?? []).map((request) => [
             <span className="font-mono text-xs" key="id">{request.id}</span>,
-            agents.find((agent) => agent.id === request.agentId)?.name,
-            modelConnections.find((model) => model.id === request.modelId)?.modelName,
+            agentByCid(request.agentId),
+            modelByName(request.modelId),
             <StatusBadge key="status" status={request.status < 300 ? "active" : "error"} />,
             `${request.latencyMs}ms`,
-            `$${request.estimatedCost.toFixed(2)}`,
+            `$${(request.estimatedCost ?? 0).toFixed(4)}`,
           ])}
         />
       </section>
