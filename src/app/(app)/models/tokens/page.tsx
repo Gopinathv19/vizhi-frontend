@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, RefreshCcw, ShieldOff, Trash2, Copy, Check } from "lucide-react";
+import { Eye, RefreshCcw, ShieldOff, Trash2, Copy, Check, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useCallback } from "react";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/shared/data-table";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { BudgetPanel } from "@/components/shared/budget-panel";
 import {
   useModels,
   useDeleteModel,
@@ -40,6 +41,8 @@ export default function ModelTokensPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   // After rotation, hold the new key for one-time copy
   const [rotatedToken, setRotatedToken] = useState<{ id: string; apiKey: string } | null>(null);
+  // Budget panel: which model id currently has it open
+  const [budgetId, setBudgetId] = useState<string | null>(null);
 
   const handleDelete = useCallback(async (modelId: string, label: string) => {
     if (!confirm(`Delete model token "${label}"?\n\nThis cannot be undone.`)) return;
@@ -187,6 +190,16 @@ export default function ModelTokensPage() {
                 <ShieldOff className="h-4 w-4" />
               </Button>
 
+              {/* Budget */}
+              <Button
+                size="icon"
+                title="Configure spending / token budget"
+                disabled={isPending}
+                onClick={() => setBudgetId(budgetId === model.id ? null : model.id)}
+              >
+                <Wallet className="h-4 w-4" />
+              </Button>
+
               {/* Delete */}
               <Button
                 size="icon"
@@ -198,6 +211,19 @@ export default function ModelTokensPage() {
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>,
+
+            // Budget panel (renders as an extra full-width row when open)
+            ...(budgetId === model.id
+              ? [
+                  <BudgetPanel
+                    key="budget"
+                    type="model"
+                    id={model.id}
+                    label={label}
+                    onClose={() => setBudgetId(null)}
+                  />,
+                ]
+              : []),
           ];
         })}
       />

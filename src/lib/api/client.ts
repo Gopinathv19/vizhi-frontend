@@ -10,6 +10,28 @@ import type {
 } from "@/types/domain";
 import { clearSession, type AuthSession } from "@/lib/auth";
 
+// ── Budget types (exported for use in components) ──────────────────────
+export type BudgetStatus = {
+  /** agent_id or model_connection_id */
+  agent_id?: string;
+  model_connection_id?: string;
+  budget_usd: number | null;
+  budget_tokens: number | null;
+  budget_reset_at: string | null;
+  spent_usd: number;
+  spent_tokens: number;
+  remaining_usd: number | null;
+  remaining_tokens: number | null;
+  exceeded: boolean;
+};
+
+export type BudgetUpdateInput = {
+  budget_usd?: number | null;
+  budget_tokens?: number | null;
+  budget_reset_at?: string | null;
+  clear?: boolean;
+};
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export type CreateModelConnectionInput = {
@@ -470,6 +492,112 @@ export const api = {
     await request(`/v1/agents/${encodeURIComponent(agentCID)}`, {
       method: "DELETE",
     });
+  },
+
+  // ── Budget ─────────────────────────────────────────────────────────────
+
+  async getAgentBudget(agentCID: string): Promise<BudgetStatus> {
+    return request<BudgetStatus>(`/v1/agents/${encodeURIComponent(agentCID)}/budget`);
+  },
+
+  async updateAgentBudget(agentCID: string, body: BudgetUpdateInput): Promise<BudgetStatus> {
+    return request<BudgetStatus>(`/v1/agents/${encodeURIComponent(agentCID)}/budget`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  async getModelBudget(modelId: string): Promise<BudgetStatus> {
+    return request<BudgetStatus>(`/v1/models/${encodeURIComponent(modelId)}/budget`);
+  },
+
+  async updateModelBudget(modelId: string, body: BudgetUpdateInput): Promise<BudgetStatus> {
+    return request<BudgetStatus>(`/v1/models/${encodeURIComponent(modelId)}/budget`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  async getProviderHealth(): Promise<{
+    overallStatus: string;
+    checkedAt: string;
+    providers: Array<{
+      provider: string;
+      label: string;
+      status: string;
+      latencyMs: number;
+      lastChecked: string;
+      message: string;
+      incidentCount: number;
+    }>;
+  }> {
+    const data = await request<{
+      overall_status: string;
+      checked_at: string;
+      providers: Array<{
+        provider: string;
+        label: string;
+        status: string;
+        latency_ms: number;
+        last_checked: string;
+        message: string;
+        incident_count: number;
+      }>;
+    }>("/v1/health/providers");
+    return {
+      overallStatus: data.overall_status,
+      checkedAt: data.checked_at,
+      providers: data.providers.map((p) => ({
+        provider: p.provider,
+        label: p.label,
+        status: p.status,
+        latencyMs: p.latency_ms,
+        lastChecked: p.last_checked,
+        message: p.message,
+        incidentCount: p.incident_count,
+      })),
+    };
+  },
+
+  async refreshProviderHealth(): Promise<{
+    overallStatus: string;
+    checkedAt: string;
+    providers: Array<{
+      provider: string;
+      label: string;
+      status: string;
+      latencyMs: number;
+      lastChecked: string;
+      message: string;
+      incidentCount: number;
+    }>;
+  }> {
+    const data = await request<{
+      overall_status: string;
+      checked_at: string;
+      providers: Array<{
+        provider: string;
+        label: string;
+        status: string;
+        latency_ms: number;
+        last_checked: string;
+        message: string;
+        incident_count: number;
+      }>;
+    }>("/v1/health/providers/refresh", { method: "POST" });
+    return {
+      overallStatus: data.overall_status,
+      checkedAt: data.checked_at,
+      providers: data.providers.map((p) => ({
+        provider: p.provider,
+        label: p.label,
+        status: p.status,
+        latencyMs: p.latency_ms,
+        lastChecked: p.last_checked,
+        message: p.message,
+        incidentCount: p.incident_count,
+      })),
+    };
   },
 
   async getModelUsage(modelId: string): Promise<{
